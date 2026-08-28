@@ -1,0 +1,87 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b980ae2..09b148e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1455,3 +1455,37 @@ endif()
+ target_compile_definitions(${FURNACE} PRIVATE ${DEPENDENCIES_DEFINES})
+ 
+ message(STATUS "License: ${FURNACE_LICENSE}")
++
++
++# --- xmp-dmf embedding: static engine library (no GUI / no main) ---
++option(BUILD_ENGINE_LIB "Build static libfurnace_engine for embedding" OFF)
++if (BUILD_ENGINE_LIB)
++  set(ENGINE_LIB_SOURCES ${ENGINE_SOURCES} ${AUDIO_SOURCES})
++  list(FILTER ENGINE_LIB_SOURCES EXCLUDE REGEX "furnace\\.rc$")
++  add_library(furnace_engine STATIC ${ENGINE_LIB_SOURCES})
++  target_include_directories(furnace_engine SYSTEM PUBLIC ${DEPENDENCIES_INCLUDE_DIRS})
++  target_include_directories(furnace_engine PUBLIC
++    ${CMAKE_SOURCE_DIR}/src
++    ${CMAKE_SOURCE_DIR}/src/engine
++    ${CMAKE_SOURCE_DIR}/src/audio
++  )
++  target_compile_options(furnace_engine PRIVATE ${DEPENDENCIES_COMPILE_OPTIONS})
++  if (NOT MSVC)
++    target_compile_options(furnace_engine PRIVATE ${WARNING_FLAGS})
++  endif()
++  target_link_libraries(furnace_engine PUBLIC ${DEPENDENCIES_LIBRARIES})
++  if (PKG_CONFIG_FOUND AND (SYSTEM_FMT OR SYSTEM_LIBSNDFILE OR SYSTEM_ZLIB OR SYSTEM_SDL2 OR SYSTEM_RTMIDI OR WITH_JACK))
++    if (NOT "${CMAKE_VERSION}" VERSION_LESS "3.13")
++      target_link_directories(furnace_engine PUBLIC ${DEPENDENCIES_LIBRARY_DIRS})
++      target_link_options(furnace_engine PUBLIC ${DEPENDENCIES_LINK_OPTIONS})
++    endif()
++  endif()
++  target_compile_definitions(furnace_engine PUBLIC ${DEPENDENCIES_DEFINES})
++  target_compile_options(furnace_engine PRIVATE
++    $<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_SOURCE_DIR}/src/pch.h>
++  )
++  if (WIN32)
++    target_link_libraries(furnace_engine PUBLIC shlwapi)
++  endif()
++  message(STATUS "Building static furnace_engine library")
++endif()
+diff --git a/src/engine/filePlayer.h b/src/engine/filePlayer.h
+index b3a8b74..76c3987 100644
+--- a/src/engine/filePlayer.h
++++ b/src/engine/filePlayer.h
+@@ -29,10 +29,28 @@
+ #ifdef HAVE_SNDFILE
+ #include "sfWrapper.h"
+ #else
++#include <climits>
+ typedef void SNDFILE;
++#ifndef SFM_READ
++#define SFM_READ 0x10
++#endif
+ struct SF_INFO {
++  long long frames;
++  int samplerate;
++  int channels;
++  int format;
++  int sections;
++  int seekable;
+   int invalid;
+ };
++class SFWrapper {
++  public:
++    int doClose() { return 0; }
++    SNDFILE* doOpen(const char*, int, SF_INFO*) { return NULL; }
++};
++typedef long long sf_count_t;
++static inline sf_count_t sf_seek(SNDFILE*, sf_count_t, int) { return -1; }
++static inline sf_count_t sf_readf_float(SNDFILE*, float*, sf_count_t) { return 0; }
+ #endif
+ 
+ class DivFilePlayer {
+diff --git a/src/fileutils/cfile.cpp b/src/fileutils/cfile.cpp
+index 13208cd..b5adfef 100644
+--- a/src/fileutils/cfile.cpp
++++ b/src/fileutils/cfile.cpp
+@@ -18,6 +18,7 @@
+  */
+ 
+ #include "../fileutils.h"
++#include <cstring>
+ 
+ // the only implementation for now
+ class TAFilePOSIX: public TAFile {
