@@ -1,0 +1,15 @@
+/build/
+/dist/
+/release/
+*.o
+*.obj
+*.exe
+*.dll
+*.a
+*~
+
+/third_party/build-*/
+/third_party/furnace/
+
+/tests/samples/*.dmf
+/tests/samples/*.fur
